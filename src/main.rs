@@ -25,6 +25,7 @@ enum Trig_Func {
 */
 
 use rand::{random_bool, random_range};
+use std::mem::MaybeUninit; // TODO: What EXACTLY is "MaybeUninit"? Sources say it's analogous to the Option enum, but how?
 use std::fmt::{Display, Error, Formatter}; // Okay -- technically, this makes displaying Equations
                                            // directly work... but surely there's a smarter way of
                                            // approaching this!
@@ -47,6 +48,8 @@ use std::cmp::max;
 /// * `Term(f32, f32)`: Represents a single term within a (possibly) larger equation.
 /// A term's `f32` values represent the term's *coefficient* and *exponent* respectively;
 /// that is, a term is of the form `(coeff)x^(exp)`.
+
+#[derive(Clone)]
 enum Equation {
     Add(Box<Equation>, Box<Equation>),
     Subtract(Box<Equation>, Box<Equation>),
@@ -58,32 +61,17 @@ enum Equation {
     //Tangent(Box<Equation>),
 }
 
-// TODO: Maybe implement this for Box<Equation> instead, since that indirection is
-// necessarily needed for this recursive type?
 impl Equation {
-    /// Generates an Equation that randomly unifies two other Equations / Terms
-    /// in one of four ways: `lhs + rhs`, `lhs - rhs`, `lhs * rhs` or `lhs / rhs`.
-    /// #### Parameters
-    /// * `lhs: Box<Equation>`: The equation on the *left-hand side* of the randomly-
-    /// generated operation.
-    /// * `rhs: Box<Equation>`: The equation on the *right-hand side* of the randomly-
-    /// generated equation.
-    fn random_op(lhs: Box<Equation>, rhs: Box<Equation>) -> Box<Equation> {
-        Box::new(match random_range(1u8..=4u8) {
-            1 => Equation::Add(lhs, rhs),
-            2 => Equation::Subtract(lhs, rhs),
-            3 => Equation::Multiply(lhs, rhs),
-            4 => Equation::Divide(lhs, rhs),
-            _ => *Equation::empty(), // This should never happen!!
-        })
+    // === # FUNCTIONS FOR INITIALIZING NEW EQUATIONS # ===
+
+    /// Produces an empty (uninitialized) Equation.
+    fn empty() -> Box<MaybeUninit<Equation>> {
+        Box::<Equation>::new_uninit()
     }
 
-    /// Generates an expression of the form `(coeff)x^(exp)`.
-    /// #### Parameters
-    /// * `val_rnge: f32`: Coefficients and exponents randomly generated within 
-    /// the equation can only possess values between `-(val_rnge)` and `val_rnge` (inclusive).
-    fn random_term(val_rnge: f32) -> Box<Equation> {
-        Box::new(Equation::Term(random_range(-(val_rnge)..=val_rnge), random_range(-(val_rnge)..=val_rnge)))
+    /// Produces a single-term Equation of the form (0.0)x^(0.0). Mostly used for debugging.
+    fn zero_term() -> Equation {
+        Equation::Term(0.0, 0.0)
     }
 
     /// Generates an equation with a random structure, using random mathematical
@@ -100,7 +88,7 @@ impl Equation {
         assert!(extend_chnc > 0.0 && extend_chnc <= 100.0);
 
         let (extend_lhs, extend_rhs) = (random_bool((extend_chnc / 100.0) as f64), random_bool((extend_chnc / 100.0) as f64));
-        Equation::random_op(
+        Equation::unify_with_random_op(
             if extend_lhs {
                 Equation::random(val_rnge, extend_chnc / 2.0)
             } else {
@@ -113,27 +101,61 @@ impl Equation {
             },
         )
     }
+    
+    /// Unifies two equations with a random mathematical operation (`lhs + rhs`, `lhs - rhs`,
+    /// `lhs * rhs` or `lhs / rhs`). **Both original equations will be consumed.**
+    /// #### Parameters
+    /// * `lhs: Box<Equation>`: The equation on the *left-hand side* of the resulting equation.
+    /// * `rhs: Box<Equation>`: The equation on the *right-hand side* of the resulting equation.
+    fn unify_with_random_op(lhs: Box<Equation>, rhs: Box<Equation>) -> Box<Equation> { // TODO: Both this and unify_with_op() should NOT consume "lhs" and "rhs".
+        let (lhs, rhs) = (lhs.clone(), rhs.clone());     // Fix these at some point!
+        Box::new(match random_range(1u8..=4u8) {
+            1 => Equation::Add(lhs, rhs),
+            2 => Equation::Subtract(lhs, rhs),
+            3 => Equation::Multiply(lhs, rhs),
+            4 => Equation::Divide(lhs, rhs),
+            _ => Equation::zero_term(), // This should never happen!!
+        })
+    }
 
-    /// Produces a new equation consisting of a single term: `(0.0)x^(0.0)`.
-    fn empty() -> Box<Equation> {
-        Box::new(Equation::Term(0.0f32, 0.0f32))
+    /// Unifies two equations with a specific mathematical operation (`lhs + rhs`, `lhs - rhs`,
+    /// `lhs * rhs` or `lhs / rhs`). **Both original equations will be consumed.**
+    /// #### Parameters
+    /// * `lhs: Box<Equation>`: The equation on the *left-hand side* of the resulting equation.
+    /// * `rhs: Box<Equation>`: The equation on the *right-hand side* of the resulting equation.
+    /// * `op: char`: The operation with which to unify `lhs` and `rhs`. Invalid operations will return `(0.0)x^(0.0)` (equivalent to `Equation::zero_term()`).
+    /// Valid operations are:
+    ///     * `op = '+'`: Returns `lhs + rhs`.
+    ///     * `op = '-'`: Returns `lhs - rhs`.
+    ///     * `op = '*'`: Returns `lhs * rhs`.
+    ///     * `op = '/'`: Returns `lhs / rhs`.
+    fn unify_with_op(lhs: Box<Equation>, rhs: Box<Equation>, op: char) -> Box<Equation> {
+        let (lhs, rhs) = (lhs.clone(), rhs.clone());
+        Box::new(match op {
+            '+' => Equation::Add(lhs, rhs),
+            '-' => Equation::Subtract(lhs, rhs),
+            '*' => Equation::Multiply(lhs, rhs),
+            '/' => Equation::Divide(lhs, rhs),
+            _ => Equation::zero_term(),
+        })
+    }
+
+    /// Generates an expression of the form `(coeff)x^(exp)`.
+    /// #### Parameters
+    /// * `val_rnge: f32`: Coefficients and exponents randomly generated within 
+    /// the equation can only possess values between `-(val_rnge)` and `val_rnge` (inclusive).
+    fn random_term(val_rnge: f32) -> Box<Equation> {
+        Box::new(Equation::Term(random_range(-(val_rnge)..=val_rnge), random_range(-(val_rnge)..=val_rnge)))
     }
 
     /// Returns a String representing the Equation.
-    fn prnt_eqn(&self) -> String {
+    fn prnt_eqn_enums(&self) -> String {
         match self {
-            Equation::Add(lhs, rhs) => return format!("{}{}{}", lhs.prnt_eqn(), " + ", rhs.prnt_eqn()),
-            Equation::Subtract(lhs, rhs) => return format!("{}{}{}", lhs.prnt_eqn(), " - ", rhs.prnt_eqn()),
-            Equation::Multiply(lhs, rhs) => return format!("{}{}{}", lhs.prnt_eqn(), " * ", rhs.prnt_eqn()),
-            Equation::Divide(lhs, rhs) => return format!("{}{}{}", lhs.prnt_eqn(), " / ", rhs.prnt_eqn()),
-            Equation::Term(coeff, exp) =>
-            if *coeff == 0.0 {
-                return "0".to_string();
-            } else if *exp == 0.0 {
-                return format!{"{}", *coeff};
-            } else {
-                return format!("{}x{}", *coeff, if *exp == 1.0 {String::new()} else {format!("^{}", *exp)});
-            },
+            Equation::Add(lhs, rhs) => format!("[Add({}, {})]", lhs.prnt_eqn_enums(), rhs.prnt_eqn_enums()),
+            Equation::Subtract(lhs, rhs) => format!("[Subtract({}, {})]", lhs.prnt_eqn_enums(), lhs.prnt_eqn_enums()),
+            Equation::Multiply(lhs, rhs) => format!("[Multiply({}, {})]", lhs.prnt_eqn_enums(), rhs.prnt_eqn_enums()),
+            Equation::Divide(lhs, rhs) => format!("[Divide({}, {})]", lhs.prnt_eqn_enums(), rhs.prnt_eqn_enums()),
+            Equation::Term(coeff, exp) => format!("[Term({}, {})]", coeff, exp),
         }
     }
 
@@ -156,14 +178,8 @@ impl Equation {
         }
     }
 
-    /// Completely replaces this Equation in-place.
-    /// #### Parameters
-    /// * `replacement: Box<Equation>`: The equation to replace this one.
-    fn replace_with(self, replacement: Box<Equation>) {
-        unimplemented!();
-        //self = replacement.clone();
-    }
-
+    /// Separates a non-term equation into its left-hand side and right-hand side. Returns `None` for any `Equation::Term()`.
+    /// This is particularly useful for quickly determining if a 
     fn lhs_rhs(&self) -> Option<(&Box<Equation>, &Box<Equation>)> {
         match self {
             Equation::Add(lhs, rhs) | Equation::Subtract(lhs, rhs)
@@ -173,8 +189,9 @@ impl Equation {
         }
     }
 
-    /// Determines the maximum depth of this Equation.
-    /// **NOT YET IMPLEMENTED; DO NOT USE!**
+    /// Determines the maximum depth of this Equation - that is, the greatest number of equations nested within this one.
+    /// #### Parameters
+    /// `current_depth: u8`: The depth count that this function should start at. For most situations, it is advisable to let `current_depth = 0u8`.
     fn depth (&self, current_depth: u8) -> u8 {
         match self {
             Equation::Add(lhs, rhs) |
@@ -188,15 +205,47 @@ impl Equation {
     /// Simplifies this Equation in-place by combining all Terms with like
     /// coefficients. **NOT YET IMPLEMENTED; DO NOT USE!**
     fn simplify(self) -> Box<Equation> {
-        Box::new(self);
         unimplemented!();
     }
 
-    /// Performs a crossover between `self` and `other_eqn: Box<Equation>`.
-    /// NOT YET IMPLEMENTED; DO NOT USE!
+    // === PRIMARY GENETIC ALGORITHM METHODS ===
+
+    /// Produces a *crossover* equation between `eqn` and `other_eqn` thusly:
+    /// * If *both* `eqn` *and* `other_eqn` are simple terms (of the form `(coeff)x^(exp)`, with no additional operations), the crossover will be a term 
+    /// that uses the coefficient from one equation and the exponent from another. For instance, a crossover of `3x^2` and `4x^5` could be `3x^5`, or `4x^2`.
+    /// * If *one, but not both,* of the equations is a simple term, then a random side of the non-term equation will be completely replaced with the term equation to produce
+    /// the crossover. For instance, a crossover of `3x^2` and `4x^5 + (6x^7 - 2x)` could be `3x^2 + (6x^7 - 2x)` or `4x^5 + 3x^2`.
+    /// * If *neither* `eqn` *nor* `other_eqn` are simple terms, then a random side of one of the equations will be completely replaced with a random side of the
+    /// other equation to produce the crossover. For instance, valid crossovers of `3x + (4x^2 + 6)` and `(7x^8 - 9) - 6x^5` include `(7x^8 - 9) + (4x^2 + 6)`, 
+    /// `3x - 6x^5`, and `3x + (7x^8 - 9)`, among others.   
+    /// 
+    /// **NOT YET IMPLEMENTED; DO NOT USE!**
     fn crossover(eqn: &Box<Equation>, other_eqn: &Box<Equation>) -> Box<Equation> {
-        todo!("Come back again later!");    
+        todo!("Come back later!");
+        /*let crossover_eqn = eqn.clone();
+        let other_eqn_clone = other_eqn.clone();
+        let (crossover_lhs, crossover_rhs) = if let Some(lh_rh) = crossover_eqn.lhs_rhs() {
+            lh_rh
+        } else {
+            if let Some(other_lh_rh) = other_eqn_clone.lhs_rhs() {
+                //
+            }
+        };*/
     }
+
+    /// Mutates the Equation in-place.
+    /// **NOT YET IMPLEMENTED; DO NOT USE!**
+    fn mutate(&mut self) {
+        todo!();
+    }
+
+    /// Retrieves the *fitness* of this equation with respect to a set of 2D coordinates, where *fitness*
+    /// denotes the closeness of an equation's overall output to the coordinates within the set.
+    /// **NOT YET IMPLEMENTED; DO NOT USE!**
+    fn fitness(&self) {
+        todo!();
+    }
+
 }
 
 /// Prints an Equation in a format that more directly showcases the enumerators
@@ -204,13 +253,27 @@ impl Equation {
 impl Display for Equation {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> { // TODO: What the hell is a Formatter?
                                                                 // What the hell does <'_> mean?? Investigate!
+        let (l_paren, r_paren): (char, char) = match self.depth(0u8) {
+            shallow if shallow <= 1u8 => ('[', ']'),
+            2u8 => ('{', '}'),
+            3u8 => ('(', ')'),
+            deep if deep > 3u8 => ('<', '>'),
+            _ => ('?', '?'),
+        };
 
         match self {
-            Equation::Add(lhs, rhs) => write!(f, "[Add({}, {})]", *lhs, *rhs),
-            Equation::Subtract(lhs, rhs) => write!(f, "[Subtract({}, {})]", *lhs, *rhs),
-            Equation::Multiply(lhs, rhs) => write!(f, "[Multiply({}, {})]", *lhs, *rhs),
-            Equation::Divide(lhs, rhs) => write!(f, "[Divide({}, {})]", *lhs, *rhs),
-            Equation::Term(coeff, exp) => write!(f, "[Term({}, {})]", coeff, exp),
+            Equation::Add(lhs, rhs) => write!(f, "{}{} + {}{}", l_paren, lhs, rhs, r_paren),
+            Equation::Subtract(lhs, rhs) => write!(f, "{}{} - {}{}", l_paren, lhs, rhs, r_paren),
+            Equation::Multiply(lhs, rhs) => write!(f, "{}{} * {}{}", l_paren, lhs, rhs, r_paren),
+            Equation::Divide(lhs, rhs) => write!(f, "{}{} / {}{}", l_paren, lhs, rhs, r_paren),
+            Equation::Term(coeff, exp) =>
+            if *coeff == 0.0 {
+                write!(f, "0")
+            } else if *exp == 0.0 {
+                write!{f, "{}", *coeff}
+            } else {
+                write!(f, "{}x{}", *coeff, if *exp == 1.0 {String::new()} else {format!("^{}", *exp)})
+            },
         }
     } 
 }
@@ -219,6 +282,7 @@ impl Display for Equation {
 // with a CSV!
 
 /// Performs symbolic regression in Rust using genetic programming.
+/// **NOT FUNCTIONAL; DO NOT USE!**
 pub fn symbolic_regression_genetic( points: &[(f32, f32)], // Change this at some point!!
                                     pop_size: u8, 
                                     mutation_chance: f32, 
@@ -229,25 +293,30 @@ pub fn symbolic_regression_genetic( points: &[(f32, f32)], // Change this at som
     //let mut population: [Box<Equation>; 10] = [Equation::random(5.0, 50.0); 10];
 }
 
+const NUM_OF_TEST_EQS: u8 = 3;
+const COEFF_EXP_RNGE: f32 = 10.0;
+const EQN_EXTENSION_CHNC: f32 = 30.0;
+
 fn main() {
+
+    // ###### EQUATION FUNCTION TESTS BELOW -- UNCOMMENT WHEN NECESSARY ######
+    // === TEST VALUES ===
     let sample_points: [(f32, f32); 10] = [ (30.0, 6.0), (6.0, 15.0),
                                             (16.0, 30.0), (2.0, 7.0),
                                             (22.0, 3.0), (23.0, 16.0),
                                             (27.0, 3.0), (19.0, 26.0),
                                             (26.0, 29.0), (29.0, 25.0)];
-    let test_eqn_1: Box<Equation> = Equation::random(10.0f32, 50.0f32);
-    /*let test_eqn_2: Box<Equation> = Equation::random(10.0f32, 50.0f32);
-    println!("Equation 1: {}\nEquation 2: {}\nCrossover: {}\n", test_eqn_1.prnt_eqn(), test_eqn_2.prnt_eqn(), Equation::crossover(&test_eqn_1, &test_eqn_2).prnt_eqn());
-    println!("...And just to make sure we still own everything, let's look at those original equations one more time!");
-    println!("Equation 1 (again): {}\nEquation 2 (again): {}", test_eqn_1.prnt_eqn(), test_eqn_2.prnt_eqn());*/
-    println!("{}", test_eqn_1); // Tests the Display trait for Equation.
-    //println!("{}", test_eqn_1.prnt_eqn()); // Tests the .prnt_eqn() function for Equation.
-    let (lhs, rhs) = if let Some(lh_rh) = test_eqn_1.lhs_rhs() {
-        lh_rh
-    } else {
-        (&Equation::empty(), &Equation::empty())
-    };
-    let lhs_depth = lhs.depth(0);
-    let rhs_depth = rhs.depth(0);
-    println!("The LHS and RHS depth of this equation are {} and {} respectively.", lhs_depth, rhs_depth);
+    let mut test_eqns: Vec<Box<Equation>> = Vec::<Box<Equation>>::new();
+    for _test_eqn in 0..NUM_OF_TEST_EQS {
+        test_eqns.push(Equation::random(COEFF_EXP_RNGE, EQN_EXTENSION_CHNC));
+    }
+
+    // === PRINTING EQUATIONS ===
+    for eqn_idx in 0..test_eqns.len() {
+        println!("This is Equation {}: {}", eqn_idx, test_eqns[eqn_idx]);
+        println!("And here is Equation {} as a bunch of enums: {}", eqn_idx, test_eqns[eqn_idx].prnt_eqn_enums());
+    }
+
+    // === CROSSOVER TEST ===
+    //println!("Here's an example of a crossover between Equation 1 and Equation 2: {}", Equation::crossover(&test_eqns[0], &test_eqns[1]));
 }
