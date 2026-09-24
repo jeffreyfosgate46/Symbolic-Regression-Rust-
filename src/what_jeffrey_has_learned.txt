@@ -1,0 +1,83 @@
+=== WHAT JEFFREY HAS LEARNED ===
+By Jeffrey Fosgate
+Last updated September 23, 2026
+
+This file chronicles all of the different pitfalls and obstacles I've
+so far encountered in implementing this symbolic regression simulation.
+Even the smallest things in Rust cannot be taken for granted as they sometimes
+can with Python and other high-level languages, necessitating this document.
+
+I initially chronicled all this stuff on the top of my main.rs file, but
+that just served to clutter things -- they do much better here, in a separate doc.
+
+=== COMMENTS BEGIN BELOW ===
+
+### What has Jeffrey tried so far in vain to get everything here working?
+
+1.) Define one struct (Term) and one enum (Operation), where Term represents
+a single polynomial term (i.e., 3x^2) and Operation represents an operation
+performed upon two of these terms (i.e., the "+" in 3x^2 + 2x^3).
+
+PROBLEMS:
+    * This setup required defining Operation in terms of generics restricted
+    by a certain trait (IsEqn), which presented a problem, as THE COMPILER
+    MUST KNOW EVERYTHING'S DATA TYPE AT COMPILE-TIME. For this reason, a recurring issue
+    was "Expected T, got <some other type>", even when <some other type> matched
+    T's specifications. T was not restricted to just one data type, hence the error!
+
+CONCEPTS LEARNED:
+    * The reason for the double <L, R> in generic implementations like
+    "impl <L, R> Operation <L, R>" is to tell Rust that the following functions
+    are being implemented with respect to some generic-typed thing.
+    * Again, THE TYPES OF EVERYTHING MUST BE KNOWN AT COMPILE-TIME. This is
+    another safety feature of Rust: there should be no circumstance where a
+    variable can end up as a string in one iteration, and a float in another!
+    * .concat() is AWESOME! Just give the function any vector or array of
+    disparate strings, and it'll make one string out of those pieces!!
+    * Traits in general: how to define 'em ("trait MyTrait { ... }"), how to
+    define their associated functions ("fn MyFn (&self) -> String;") or ("fn
+    MyFn(&self) -> String { ... }" for default behavior), and how to use them
+    in restricting generics ("impl<T> MyStruct<T> where T: MyTrait").
+
+2.) Define one enum (Equation), where Equation can represent either a single
+term with "x" in it (i.e., 3x^2), or multiple such terms composited together
+by some operation (::Add, ::Subtract, etc.) This resolves the previous issue
+of an Equation's data type being unknown at compile-time.
+
+PROBLEMS:
+    * So many issues related to "recursive types". Since an Equation can
+    technically be comprised of multiple smaller Equations, one needs to
+    introduce indirection in Equation's definition (namely, through fixed-
+    sized pointers, like Box<Equation> or &Equation). From rustc --explain
+    E0072:
+        @ "When defining a recursive struct or enum, any use of the type 
+        being defined from inside the definition must occur behind a pointer
+        (like `Box`, `&` or `Rc`). This is because structs and enums must 
+        have a well-defined size, and without the pointer, the size of the
+        type would need to be unbounded."
+
+CONCEPTS LEARNED:
+    * There are crucial differences between String, str, and &str!
+        @ A STRING (i.e., String::new()) is a struct that kind of acts like
+        a fat pointer, in that it consists of a pointer to the beginning of
+        the string in the heap (represented by a Vec<u8>), a string length,
+        and a string capacity. 
+        Its size IS fixed: its overall size is simply
+        that of the pointer, plus that of the capacity integer, plus that of
+        the length integer, all computer architecture-dependent.
+        @ A "str" DATATYPE is a sequence of heap-stored characters that is
+        dynamic: its aggregate size can increase or decrease depending on what
+        a program does to it.
+        Its size IS NOT fixed: it is an example, rare in Rust, of a Dynamic Sized
+        Type (DST), whose size is indeterminate at compile-time. In more
+        Rust-y terms, a "str" does not implement the "Sized" trait, which
+        specifies that a data type possesses a fixed length that the Rust
+        compiler can know at compile-time. Thus, you CANNOT DIRECTLY USE IT
+        IN YOUR CODE! So, basically, don't dereference a string slice!!
+        @ A STRING SLICE (&str) is a borrowed subset of characters from within
+        these heap-stored character (str) types. A string slice can be either
+        directly created from a string literal ("let myStr: &str = 'Hello!';")
+        or produced as a subset of a String ("let myStr: String = String::
+        from('Hello!'); let myStrSlice: &str = myStr[..=4];").
+        Its size IS fixed: It is a "fat pointer" consisting of a pointer to the
+        beginning of the string, and a u8 string length.

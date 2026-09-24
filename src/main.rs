@@ -1,6 +1,6 @@
 // SYMBOLIC REGRESSION GENETIC ALGORITHM IN RUST
 // By Jeffrey Fosgate
-// Last updated September 22, 2026
+// Last updated September 23, 2026
 // CURRENT STATUS: NON-FUNCTIONAL / CONCEPTUAL
 
 // Symbolic regression is a problem that lends itself well to genetic
@@ -24,83 +24,11 @@ enum Trig_Func {
 }
 */
 
-// What has Jeffrey tried so far in vain to get everything here working?
-
-/*
-1.) Define one struct (Term) and one enum (Operation), where Term represents
-a single polynomial term (i.e., 3x^2) and Operation represents an operation
-performed upon two of these terms (i.e., the "+" in 3x^2 + 2x^3).
-
-PROBLEMS:
-    * This setup required defining Operation in terms of generics restricted
-    by a certain trait (IsEqn), which presented a problem, as THE COMPILER
-    MUST KNOW EVERYTHING'S DATA TYPE AT COMPILE-TIME. For this reason, a recurring issue
-    was "Expected T, got <some other type>", even when <some other type> matched
-    T's specifications. T was not restricted to just one data type, hence the error!
-
-CONCEPTS LEARNED:
-    * The reason for the double <L, R> in generic implementations like
-    "impl <L, R> Operation <L, R>" is to tell Rust that the following functions
-    are being implemented with respect to some generic-typed thing.
-    * Again, THE TYPES OF EVERYTHING MUST BE KNOWN AT COMPILE-TIME. This is
-    another safety feature of Rust: there should be no circumstance where a
-    variable can end up as a string in one iteration, and a float in another!
-    * .concat() is AWESOME! Just give the function any vector or array of
-    disparate strings, and it'll make one string out of those pieces!!
-    * Traits in general: how to define 'em ("trait MyTrait { ... }"), how to
-    define their associated functions ("fn MyFn (&self) -> String;") or ("fn
-    MyFn(&self) -> String { ... }" for default behavior), and how to use them
-    in restricting generics ("impl<T> MyStruct<T> where T: MyTrait").
-
-2.) Define one enum (Equation), where Equation can represent either a single
-term with "x" in it (i.e., 3x^2), or multiple such terms composited together
-by some operation (::Add, ::Subtract, etc.) This resolves the previous issue
-of an Equation's data type being unknown at compile-time.
-
-PROBLEMS:
-    * So many issues related to "recursive types". Since an Equation can
-    technically be comprised of multiple smaller Equations, one needs to
-    introduce indirection in Equation's definition (namely, through fixed-
-    sized pointers, like Box<Equation> or &Equation). From rustc --explain
-    E0072:
-        @ "When defining a recursive struct or enum, any use of the type 
-        being defined from inside the definition must occur behind a pointer
-        (like `Box`, `&` or `Rc`). This is because structs and enums must 
-        have a well-defined size, and without the pointer, the size of the
-        type would need to be unbounded."
-
-CONCEPTS LEARNED:
-    * There are crucial differences between String, str, and &str!
-        @ A STRING (i.e., String::new()) is a struct that kind of acts like
-        a fat pointer, in that it consists of a pointer to the beginning of
-        the string in the heap (represented by a Vec<u8>), a string length,
-        and a string capacity. 
-        Its size IS fixed: its overall size is simply
-        that of the pointer, plus that of the capacity integer, plus that of
-        the length integer, all computer architecture-dependent.
-        @ A "str" DATATYPE is a sequence of heap-stored characters that is
-        dynamic: its aggregate size can increase or decrease depending on what
-        a program does to it.
-        Its size IS NOT fixed: it is an example, rare in Rust, of a Dynamic Sized
-        Type (DST), whose size is indeterminate at compile-time. In more
-        Rust-y terms, a "str" does not implement the "Sized" trait, which
-        specifies that a data type possesses a fixed length that the Rust
-        compiler can know at compile-time. Thus, you CANNOT DIRECTLY USE IT
-        IN YOUR CODE! So, basically, don't dereference a string slice!!
-        @ A STRING SLICE (&str) is a borrowed subset of characters from within
-        these heap-stored character (str) types. A string slice can be either
-        directly created from a string literal ("let myStr: &str = 'Hello!';")
-        or produced as a subset of a String ("let myStr: String = String::
-        from('Hello!'); let myStrSlice: &str = myStr[..=4];").
-        Its size IS fixed: It is a "fat pointer" consisting of a pointer to the
-        beginning of the string, and a u8 string length.
-
-*/
-
 use rand::{random_bool, random_range};
 use std::fmt::{Display, Error, Formatter}; // Okay -- technically, this makes displaying Equations
                                            // directly work... but surely there's a smarter way of
                                            // approaching this!
+use std::cmp::max;
 
 /// An **equation** is an expression of the form `y = f(x)`, where `f(x)` is a function
 /// that operates upon one or more **terms** (of the form `(coeff)x^(exp)`, where
@@ -130,6 +58,8 @@ enum Equation {
     //Tangent(Box<Equation>),
 }
 
+// TODO: Maybe implement this for Box<Equation> instead, since that indirection is
+// necessarily needed for this recursive type?
 impl Equation {
     /// Generates an Equation that randomly unifies two other Equations / Terms
     /// in one of four ways: `lhs + rhs`, `lhs - rhs`, `lhs * rhs` or `lhs / rhs`.
@@ -234,11 +164,25 @@ impl Equation {
         //self = replacement.clone();
     }
 
-    /// Determines the maximum depth of this Equation in what could only be described
-    /// as some messed-up, kludgy variant of a depth-first search.
+    fn lhs_rhs(&self) -> Option<(&Box<Equation>, &Box<Equation>)> {
+        match self {
+            Equation::Add(lhs, rhs) | Equation::Subtract(lhs, rhs)
+            | Equation::Multiply(lhs, rhs) | Equation::Divide(lhs, rhs)
+            => Some((lhs, rhs)),
+            _ => None,
+        }
+    }
+
+    /// Determines the maximum depth of this Equation.
     /// **NOT YET IMPLEMENTED; DO NOT USE!**
-    fn depth (&self) -> u8 {
-        unimplemented!();
+    fn depth (&self, current_depth: u8) -> u8 {
+        match self {
+            Equation::Add(lhs, rhs) |
+            Equation::Subtract(lhs, rhs) |
+            Equation::Multiply(lhs, rhs) |
+            Equation::Divide(lhs, rhs) => lhs.depth(current_depth + 1).max(rhs.depth(current_depth + 1)),
+            Equation::Term(_, _) => current_depth + 1,
+        }
     }
 
     /// Simplifies this Equation in-place by combining all Terms with like
@@ -249,30 +193,9 @@ impl Equation {
     }
 
     /// Performs a crossover between `self` and `other_eqn: Box<Equation>`.
-    /// #### Parameters
-    /// 
+    /// NOT YET IMPLEMENTED; DO NOT USE!
     fn crossover(eqn: &Box<Equation>, other_eqn: &Box<Equation>) -> Box<Equation> {
-        todo!("Still working on this one!");
-
-        // This doesn't work!! Investigate!!
-        /*let Equation(other_lhs, other_rhs) = other_eqn; 
-
-        let crossover_eqn = *eqn.clone();
-        let Equation(crossover_lhs, crossover_rhs) = crossover_eqn;
-
-        let replacement_side = if random_bool(0.5) {
-            *other_lhs
-        } else {
-            *other_rhs
-        }.clone();
-
-        if random_bool(0.5) {
-            *crossover_lhs = replacement_side;
-        } else {
-            *crossover_rhs = replacement_side;
-        }
-
-        crossover_eqn*/
+        todo!("Come back again later!");    
     }
 }
 
@@ -318,116 +241,13 @@ fn main() {
     println!("...And just to make sure we still own everything, let's look at those original equations one more time!");
     println!("Equation 1 (again): {}\nEquation 2 (again): {}", test_eqn_1.prnt_eqn(), test_eqn_2.prnt_eqn());*/
     println!("{}", test_eqn_1); // Tests the Display trait for Equation.
-    println!("{}", test_eqn_1.prnt_eqn()); // Tests the .prnt_eqn() function for Equation.
+    //println!("{}", test_eqn_1.prnt_eqn()); // Tests the .prnt_eqn() function for Equation.
+    let (lhs, rhs) = if let Some(lh_rh) = test_eqn_1.lhs_rhs() {
+        lh_rh
+    } else {
+        (&Equation::empty(), &Equation::empty())
+    };
+    let lhs_depth = lhs.depth(0);
+    let rhs_depth = rhs.depth(0);
+    println!("The LHS and RHS depth of this equation are {} and {} respectively.", lhs_depth, rhs_depth);
 }
-
-// === OLD IMPLEMENTATION BELOW -- PLEASE IGNORE ===
-
-/*trait IsEqn {
-    fn eqn_str(&self) -> String {
-        String::new()
-    }
-
-    fn eval_eqn(&self, x_val: f32) -> f32;
-
-    fn random (term_val_rnge: f32, extend_chnc: f32) -> Self;
-}
-
-struct Term {
-    coeff: f32,
-    exp: f32,
-}
-
-impl IsEqn for Term {
-    fn eval_eqn (&self, x_val: f32) -> f32 {
-        self.coeff * (x_val.powf(self.exp))
-    }
-
-    fn eqn_str(&self) -> String {
-        format!("{}{}",
-                self.coeff,
-                match self.exp {
-                0.0f32 => "".to_string(),
-                1.0f32 => "x".to_string(),
-                other_exp => format!("x^{}", self.exp),
-                })
-    }
-
-    fn random (term_val_rnge: f32, _extend_chnc: f32) -> Term {
-        Term{ coeff: rand_range(-(term_val_rnge)..=term_val_rnge), 
-              exp: rand_range(-(term_val_rnge)..=term_val_rnge) }
-    }
-}
-
-// TODO: Add something here for invalid operations.
-enum Operation <L, R> {
-    Add(L, R),
-    Subtract(L, R),
-    Multiply(L, R),
-    Divide(L, R),
-}
-
-impl <L, R> IsEqn for Operation <L, R>
-where L: IsEqn, R: IsEqn {
-    fn random (term_val_rnge: f32, extend_chnc: f32) -> Operation <L, R> {
-        assert!(extend_chnc >= 0.0f32 && extend_chnc <= 100.0f32);
-
-        let extend_eq_side: (bool, bool) = (if rand_range(0.0f32..=100.0f32) >= extend_chnc { true } else { false },
-                                            if rand_range(0.0f32..=100.0f32) >= extend_chnc { true } else { false });
-
-        let eqn_lhs = Operation::random(term_val_rnge, extend_chnc / 2.0);
-        let eqn_rhs = Operation::random(term_val_rnge, extend_chnc / 2.0);
-
-        if !extend_eq_side.0 {
-            let eqn_lhs = Term::random(term_val_rnge, extend_chnc / 2.0);
-        } if !extend_eq_side.1 {
-            let eqn_rhs = Term::random(term_val_rnge, extend_chnc / 2.0);
-        }
-
-        match rand_range(1u8..=4u8) {
-            1 => Operation::Add(eqn_lhs, eqn_rhs),
-            2 => Operation::Subtract(eqn_lhs, eqn_rhs),
-            3 => Operation::Multiply(eqn_lhs, eqn_rhs),
-            4 => Operation::Divide(eqn_lhs, eqn_rhs),
-        }
-    }
-
-    fn eval_eqn(&self, x_val: f32) -> f32 {
-        match self {
-            Operation::Add(lhs, rhs) => lhs.eval_eqn(x_val) + rhs.eval_eqn(x_val),
-            Operation::Subtract(lhs, rhs) => lhs.eval_eqn(x_val) - rhs.eval_eqn(x_val),
-            Operation::Multiply(lhs, rhs) => lhs.eval_eqn(x_val) * rhs.eval_eqn(x_val),
-            Operation::Divide(lhs, rhs) => { if rhs.eval_eqn(x_val) == 0.0f32 { // Cannot divide by zero!
-                                                        f32::MAX
-                                                    } else {
-                                                        lhs.eval_eqn(x_val) / rhs.eval_eqn(x_val)
-                                                    }},
-        }
-    }
-
-    fn eqn_str(&self) -> String {
-        let (lhs, rhs, op): (&L, &R, &str) = 
-        match self {
-            Operation::Add(lh, rh) => (lh, rh, " + "),
-            Operation::Subtract(lh, rh) => (lh, rh, " - "),
-            Operation::Multiply(lh, rh) => (lh, rh, " * "),
-            Operation::Divide(lh, rh) => (lh, rh, " / "),
-        };
-
-        [lhs.eqn_str(),
-        op.to_string(),
-        rhs.eqn_str()].concat()
-    }
-}
-
-impl <L, R> Operation <L, R> {
-
-    fn op_str(&self) -> String {
-        match self {
-            Operation::Add(_, _) => " + ",
-            Operation::Subtract(_, _) => " - ",
-            Operation::Multiply(_, _) => " * ",
-            Operation::Divide(_, _) => " / ",
-        }.to_string()
-    }
-}*/
