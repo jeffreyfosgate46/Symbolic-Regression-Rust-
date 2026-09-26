@@ -61,6 +61,11 @@ enum Equation {
     //Tangent(Box<Equation>),
 }
 
+/// Returns a `bool` that has a 50% chance of being `true`, and a 50% chance of being `false`.
+fn fifty_fifty_chance() -> bool {
+    random_bool(0.5)
+}
+
 impl Equation {
     // === # FUNCTIONS FOR INITIALIZING NEW EQUATIONS # ===
 
@@ -69,7 +74,7 @@ impl Equation {
         Box::<Equation>::new_uninit()
     }
 
-    /// Produces a single-term Equation of the form (0.0)x^(0.0). Mostly used for debugging.
+    /// Produces a single-term Equation of the form (0.0)x^(0.0). Mostly used for debugging, as this is very unlikely to be produced organically.
     fn zero_term() -> Equation {
         Equation::Term(0.0, 0.0)
     }
@@ -84,22 +89,29 @@ impl Equation {
     /// Equation. For example, if an equation "extends" once from its left-side,
     /// it may look something like `(2x / 3x^2) + 4x^3` -- an Equation inside of another
     /// Equation.
+    // TODO: This is incapable of producing a single lone term (i.e., 2x^2), preventing this algorithm from discovering a whole domain of possible solutions.
+    // Fix that!
     fn random(val_rnge: f32, extend_chnc: f32) -> Box<Equation> {
         assert!(extend_chnc > 0.0 && extend_chnc <= 100.0);
 
         let (extend_lhs, extend_rhs) = (random_bool((extend_chnc / 100.0) as f64), random_bool((extend_chnc / 100.0) as f64));
 
-        Equation::unify_with_op(
-            if extend_lhs {
-                Equation::random(val_rnge, extend_chnc / 2.0)
-            } else {
-                Equation::random_term(val_rnge)
-            },
-            if extend_rhs {
-                Equation::random(val_rnge, extend_chnc / 2.0)
-            } else {
-                Equation::random_term(val_rnge)
-            },
+        let (random_lhs, random_rhs) =  (
+                                            if extend_lhs {
+                                                Equation::random(val_rnge, extend_chnc / 2.0)
+                                            } else {
+                                                Equation::random_term(val_rnge)
+                                            },
+                                            if extend_rhs {
+                                                Equation::random(val_rnge, extend_chnc / 2.0)
+                                            } else {
+                                                Equation::random_term(val_rnge)
+                                            }
+                                        );
+
+        Equation::unify_with_op( // Here's the traitor, Your Majesty!
+            &random_lhs,
+            &random_rhs,
             match random_range(0u8..=3u8) {
                 0 => '+',
                 1 => '-',
@@ -121,7 +133,8 @@ impl Equation {
     ///     * `op = '-'`: Returns `lhs - rhs`.
     ///     * `op = '*'`: Returns `lhs * rhs`.
     ///     * `op = '/'`: Returns `lhs / rhs`.
-    fn unify_with_op(lhs: Box<Equation>, rhs: Box<Equation>, op: char) -> Box<Equation> {
+    fn unify_with_op(lhs: &Box<Equation>, rhs: &Box<Equation>, op: char) -> Box<Equation> {
+        let (lhs, rhs) = (lhs.clone(), rhs.clone());
         Box::new(match op {
             '+' => Equation::Add(lhs, rhs),
             '-' => Equation::Subtract(lhs, rhs),
@@ -143,7 +156,7 @@ impl Equation {
     fn prnt_eqn_enums(&self) -> String {
         match self {
             Equation::Add(lhs, rhs) => format!("[Add({}, {})]", lhs.prnt_eqn_enums(), rhs.prnt_eqn_enums()),
-            Equation::Subtract(lhs, rhs) => format!("[Subtract({}, {})]", lhs.prnt_eqn_enums(), lhs.prnt_eqn_enums()),
+            Equation::Subtract(lhs, rhs) => format!("[Subtract({}, {})]", lhs.prnt_eqn_enums(), rhs.prnt_eqn_enums()),
             Equation::Multiply(lhs, rhs) => format!("[Multiply({}, {})]", lhs.prnt_eqn_enums(), rhs.prnt_eqn_enums()),
             Equation::Divide(lhs, rhs) => format!("[Divide({}, {})]", lhs.prnt_eqn_enums(), rhs.prnt_eqn_enums()),
             Equation::Term(coeff, exp) => format!("[Term({}, {})]", coeff, exp),
@@ -170,7 +183,7 @@ impl Equation {
     }
 
     /// Separates a non-term equation into its left-hand side and right-hand side. Returns `None` for any `Equation::Term()`.
-    fn lhs_rhs(&self) -> Option<(&Box<Equation>, &Box<Equation>)> {
+    fn lhs_rhs(&mut self) -> Option<(&mut Box<Equation>, &mut Box<Equation>)> {
         match self {
             Equation::Add(lhs, rhs) | Equation::Subtract(lhs, rhs)
             | Equation::Multiply(lhs, rhs) | Equation::Divide(lhs, rhs)
@@ -192,12 +205,13 @@ impl Equation {
         }
     }
 
-    // TODO: Once you learn about error checking, make this return a Result instead of just assuming this works every time!
+    // TODO: Wouldn't it be cool if this returned the equation you got rid of during the replacement?
+    /// Replaces the equation passed as `replaced` with the equation
     fn replace(replaced: &mut Box<Equation>, replacement: &Box<Equation>) {
         *replaced = replacement.clone();
     }
 
-    /// A function for swapping two Equations in-place, similarly to how replace() does it?
+    /// A function for swapping two Equations in-place, similarly to how replace() does it? Not sure if I even need this.
     /*fn swap() {
 
     }*/
@@ -218,23 +232,19 @@ impl Equation {
     /// * If *neither* `eqn` *nor* `other_eqn` are simple terms, then a random side of one of the equations will be completely replaced with a random side of the
     /// other equation to produce the crossover. For instance, valid crossovers of `3x + (4x^2 + 6)` and `(7x^8 - 9) - 6x^5` include `(7x^8 - 9) + (4x^2 + 6)`, 
     /// `3x - 6x^5`, and `3x + (7x^8 - 9)`, among others.   
-    /// 
-    /// **NOT YET IMPLEMENTED; DO NOT USE!**
-    // TODO: The only part of this that renders this non-functional is the fact that lhs_rhs() returns IMMUTABLE references to an equation's LHS and RHS, when .replace()
-    // calls for MUTABLE references. Find a way to circumvent / address this!
     fn crossover(eqn: &Box<Equation>, other_eqn: &Box<Equation>) -> Box<Equation> {
-        let (eqn, other_eqn) = (eqn.clone(), other_eqn.clone());
+        let (mut eqn, mut other_eqn) = (eqn.clone(), other_eqn.clone());
         
         let is_eqn_a_term = if let Some(_) = eqn.lhs_rhs() {
-            true
-        } else {
             false
+        } else {
+            true
         };
 
-        let is_other_eqn_a_term = if let Some(_) = eqn.lhs_rhs() {
-            true
-        } else {
+        let is_other_eqn_a_term = if let Some(_) = other_eqn.lhs_rhs() {
             false
+        } else {
+            true
         };
 
         if is_eqn_a_term && is_other_eqn_a_term { // The case where BOTH equations are simple terms.
@@ -244,12 +254,12 @@ impl Equation {
                 let Equation::Term(other_eqn_coeff, other_eqn_exp) = *other_eqn else {
                     panic!("Simple term expected at crossover; equation received.");
                 };
-                let use_other_coeff = random_bool(50.0);
+                let use_other_coeff = fifty_fifty_chance();
                 Box::new(Equation::Term(if use_other_coeff { other_eqn_coeff } else { eqn_coeff },
                                         if use_other_coeff { eqn_exp } else { other_eqn_exp }))
         } else { 
-            let (crossover, other) = if !(is_eqn_a_term || is_other_eqn_a_term) { // The case where BOTH equations are complex expressions.
-                                                        if random_bool(50.0) { (eqn, other_eqn) } else { (other_eqn, eqn) }
+            let (mut crossover, mut other) = if !(is_eqn_a_term || is_other_eqn_a_term) { // The case where BOTH equations are complex expressions.
+                                                        if fifty_fifty_chance() { (eqn, other_eqn) } else { (other_eqn, eqn) }
                                                     } else if is_other_eqn_a_term { // The case where "other_eqn" ONLY is a simple term.
                                                         (eqn, other_eqn)
                                                     } else { // The case where "eqn" ONLY is a simple term.
@@ -263,12 +273,12 @@ impl Equation {
             };
 
             Equation::replace(
-                        if random_bool(50.0) {
-                            crossover_lhs // This isn't mutable, but it needs to be!!
+                        if fifty_fifty_chance() {
+                            crossover_lhs
                         } else {
                             crossover_rhs
                         },
-                        if random_bool(50.0) {
+                        if fifty_fifty_chance() {
                             other_lhs
                         } else {
                             other_rhs
@@ -279,6 +289,21 @@ impl Equation {
     }
 
     /// Mutates this Equation.   
+    /// 
+    /// A *mutation* can occur among a given equation in one of the following ways:
+    /// * If the equation is a simple term (i.e., `3x^2`), a mutation occurs by altering the term's coefficient and / or exponent slightly (i.e., `3x^2` ->
+    /// `(3.05)x^(1.95)`).
+    /// * If the equation is a complex expression (i.e., `3x^2 + 5x^4`), a mutation occurs either by altering the coefficient and / or exponent of one of its
+    /// constituent terms slightly (see above), or by replacing one of its sub-expressions with a completely new, random expression. For instance, valid
+    /// mutations of `3x^2 + 5x^4` include `3x^2 + (4.95)x^4` (mutation of a constituent term) or `3x^2 + (7x^8 / 2x)` (replacement of a sub-expression with a
+    /// completely new expression).
+    /// #### Parameters
+    /// * `toplevel_mut_chance: f32`: If `self` is an expression of the form `<lhs> <op> <rhs>` (i.e., `3x^2 + 5x^4`), the likelihood that `lhs` or `rhs` themselves
+    /// will be replaced with a completely random new expression or term. This is an especially dramatic mutation to make; it is best to keep this small for
+    /// more complex expressions.
+    /// * `term_mut_intensity: f32`: How dramatically a simple term's coefficient or exponent should be raised or lowered *at most*, if it is mutated. For instance,
+    /// if `term_mut_intensity = 2.0f32`, and a term has a coefficient of `2` (as in, `2x^3`), then that coefficient can only possibly possess values between 
+    /// `0.0` and `4.0` after it has been mutated.
     fn mutate(&mut self, toplevel_mut_chance: f32, term_mut_intensity: f32) {
         todo!("This is where mutations will occur!");
         //assert!(init_mut_chance >= 0.0f && init_mut_chance <= 100.0f);
@@ -357,16 +382,16 @@ fn main() {
 
     // === PRINTING EQUATIONS ===
     for eqn_idx in 0..test_eqns.len() {
-        println!("This is Equation {}: {}", eqn_idx, test_eqns[eqn_idx]);
-        println!("And here is Equation {} as a bunch of enums: {}", eqn_idx, test_eqns[eqn_idx].prnt_eqn_enums());
+        println!("This is Equation {}: {}", eqn_idx + 1, test_eqns[eqn_idx]);
+        println!("And here is Equation {} as a bunch of enums: {}", eqn_idx + 1, test_eqns[eqn_idx].prnt_eqn_enums());
     }
 
     // === SWAPPING AND REPLACING EQUATIONS ===
-    let new_random_eqn = Equation::random(COEFF_EXP_RNGE, EQN_EXTENSION_CHNC);
+    /*let new_random_eqn = Equation::random(COEFF_EXP_RNGE, EQN_EXTENSION_CHNC);
     println!("Here's a new equation I just came up with! {}", new_random_eqn);
     println!("Now, I'll turn two equations into one before your very eyes! Remember this equation?\n{}", test_eqns[0]);
-    println!("Here what our \'new equation\' looks like now! Ta-daaaa!\n{}", new_random_eqn);
+    println!("Here what our \'new equation\' looks like now! Ta-daaaa!\n{}", new_random_eqn);*/
 
     // === CROSSOVER TEST ===
-    //println!("Here's an example of a crossover between Equation 1 and Equation 2: {}", Equation::crossover(&test_eqns[0], &test_eqns[1]));
+    println!("Here's an example of a crossover between Equation 1 and Equation 2: {}", Equation::crossover(&test_eqns[0], &test_eqns[1]));
 }
