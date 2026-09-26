@@ -1,6 +1,6 @@
 // SYMBOLIC REGRESSION GENETIC ALGORITHM IN RUST
 // By Jeffrey Fosgate
-// Last updated September 23, 2026
+// Last updated September 25, 2026
 // CURRENT STATUS: NON-FUNCTIONAL / CONCEPTUAL
 
 // Symbolic regression is a problem that lends itself well to genetic
@@ -88,7 +88,8 @@ impl Equation {
         assert!(extend_chnc > 0.0 && extend_chnc <= 100.0);
 
         let (extend_lhs, extend_rhs) = (random_bool((extend_chnc / 100.0) as f64), random_bool((extend_chnc / 100.0) as f64));
-        Equation::unify_with_random_op(
+
+        Equation::unify_with_op(
             if extend_lhs {
                 Equation::random(val_rnge, extend_chnc / 2.0)
             } else {
@@ -99,27 +100,18 @@ impl Equation {
             } else {
                 Equation::random_term(val_rnge)
             },
+            match random_range(0u8..=3u8) {
+                0 => '+',
+                1 => '-',
+                2 => '*',
+                3 => '/',
+                _ => '?',
+            }
         )
-    }
-    
-    /// Unifies two equations with a random mathematical operation (`lhs + rhs`, `lhs - rhs`,
-    /// `lhs * rhs` or `lhs / rhs`). **Both original equations will be consumed.**
-    /// #### Parameters
-    /// * `lhs: Box<Equation>`: The equation on the *left-hand side* of the resulting equation.
-    /// * `rhs: Box<Equation>`: The equation on the *right-hand side* of the resulting equation.
-    fn unify_with_random_op(lhs: Box<Equation>, rhs: Box<Equation>) -> Box<Equation> { // TODO: Both this and unify_with_op() should NOT consume "lhs" and "rhs".
-        let (lhs, rhs) = (lhs.clone(), rhs.clone());     // Fix these at some point!
-        Box::new(match random_range(1u8..=4u8) {
-            1 => Equation::Add(lhs, rhs),
-            2 => Equation::Subtract(lhs, rhs),
-            3 => Equation::Multiply(lhs, rhs),
-            4 => Equation::Divide(lhs, rhs),
-            _ => Equation::zero_term(), // This should never happen!!
-        })
     }
 
     /// Unifies two equations with a specific mathematical operation (`lhs + rhs`, `lhs - rhs`,
-    /// `lhs * rhs` or `lhs / rhs`). **Both original equations will be consumed.**
+    /// `lhs * rhs` or `lhs / rhs`).
     /// #### Parameters
     /// * `lhs: Box<Equation>`: The equation on the *left-hand side* of the resulting equation.
     /// * `rhs: Box<Equation>`: The equation on the *right-hand side* of the resulting equation.
@@ -130,7 +122,6 @@ impl Equation {
     ///     * `op = '*'`: Returns `lhs * rhs`.
     ///     * `op = '/'`: Returns `lhs / rhs`.
     fn unify_with_op(lhs: Box<Equation>, rhs: Box<Equation>, op: char) -> Box<Equation> {
-        let (lhs, rhs) = (lhs.clone(), rhs.clone());
         Box::new(match op {
             '+' => Equation::Add(lhs, rhs),
             '-' => Equation::Subtract(lhs, rhs),
@@ -179,7 +170,6 @@ impl Equation {
     }
 
     /// Separates a non-term equation into its left-hand side and right-hand side. Returns `None` for any `Equation::Term()`.
-    /// This is particularly useful for quickly determining if a 
     fn lhs_rhs(&self) -> Option<(&Box<Equation>, &Box<Equation>)> {
         match self {
             Equation::Add(lhs, rhs) | Equation::Subtract(lhs, rhs)
@@ -202,6 +192,16 @@ impl Equation {
         }
     }
 
+    // TODO: Once you learn about error checking, make this return a Result instead of just assuming this works every time!
+    fn replace(replaced: &mut Box<Equation>, replacement: &Box<Equation>) {
+        *replaced = replacement.clone();
+    }
+
+    /// A function for swapping two Equations in-place, similarly to how replace() does it?
+    /*fn swap() {
+
+    }*/
+
     /// Simplifies this Equation in-place by combining all Terms with like
     /// coefficients. **NOT YET IMPLEMENTED; DO NOT USE!**
     fn simplify(self) -> Box<Equation> {
@@ -220,30 +220,75 @@ impl Equation {
     /// `3x - 6x^5`, and `3x + (7x^8 - 9)`, among others.   
     /// 
     /// **NOT YET IMPLEMENTED; DO NOT USE!**
+    // TODO: The only part of this that renders this non-functional is the fact that lhs_rhs() returns IMMUTABLE references to an equation's LHS and RHS, when .replace()
+    // calls for MUTABLE references. Find a way to circumvent / address this!
     fn crossover(eqn: &Box<Equation>, other_eqn: &Box<Equation>) -> Box<Equation> {
-        todo!("Come back later!");
-        /*let crossover_eqn = eqn.clone();
-        let other_eqn_clone = other_eqn.clone();
-        let (crossover_lhs, crossover_rhs) = if let Some(lh_rh) = crossover_eqn.lhs_rhs() {
-            lh_rh
+        let (eqn, other_eqn) = (eqn.clone(), other_eqn.clone());
+        
+        let is_eqn_a_term = if let Some(_) = eqn.lhs_rhs() {
+            true
         } else {
-            if let Some(other_lh_rh) = other_eqn_clone.lhs_rhs() {
-                //
-            }
-        };*/
+            false
+        };
+
+        let is_other_eqn_a_term = if let Some(_) = eqn.lhs_rhs() {
+            true
+        } else {
+            false
+        };
+
+        if is_eqn_a_term && is_other_eqn_a_term { // The case where BOTH equations are simple terms.
+                let Equation::Term(eqn_coeff, eqn_exp) = *eqn else {
+                    panic!("Simple term expected at crossover; equation received.");
+                };
+                let Equation::Term(other_eqn_coeff, other_eqn_exp) = *other_eqn else {
+                    panic!("Simple term expected at crossover; equation received.");
+                };
+                let use_other_coeff = random_bool(50.0);
+                Box::new(Equation::Term(if use_other_coeff { other_eqn_coeff } else { eqn_coeff },
+                                        if use_other_coeff { eqn_exp } else { other_eqn_exp }))
+        } else { 
+            let (crossover, other) = if !(is_eqn_a_term || is_other_eqn_a_term) { // The case where BOTH equations are complex expressions.
+                                                        if random_bool(50.0) { (eqn, other_eqn) } else { (other_eqn, eqn) }
+                                                    } else if is_other_eqn_a_term { // The case where "other_eqn" ONLY is a simple term.
+                                                        (eqn, other_eqn)
+                                                    } else { // The case where "eqn" ONLY is a simple term.
+                                                        (other_eqn, eqn)
+                                                    };
+            let Some((crossover_lhs, crossover_rhs)) = crossover.lhs_rhs() else {
+                panic!("Expected complex expression during crossover; received simple term.");
+            };
+            let Some((other_lhs, other_rhs)) = other.lhs_rhs() else {
+                panic!("Expected complex expression during crossover; received simple term.");
+            };
+
+            Equation::replace(
+                        if random_bool(50.0) {
+                            crossover_lhs // This isn't mutable, but it needs to be!!
+                        } else {
+                            crossover_rhs
+                        },
+                        if random_bool(50.0) {
+                            other_lhs
+                        } else {
+                            other_rhs
+                        }
+                    );
+            crossover
+        }
     }
 
-    /// Mutates the Equation in-place.
-    /// **NOT YET IMPLEMENTED; DO NOT USE!**
-    fn mutate(&mut self) {
-        todo!();
+    /// Mutates this Equation.   
+    fn mutate(&mut self, toplevel_mut_chance: f32, term_mut_intensity: f32) {
+        todo!("This is where mutations will occur!");
+        //assert!(init_mut_chance >= 0.0f && init_mut_chance <= 100.0f);
     }
 
     /// Retrieves the *fitness* of this equation with respect to a set of 2D coordinates, where *fitness*
     /// denotes the closeness of an equation's overall output to the coordinates within the set.
     /// **NOT YET IMPLEMENTED; DO NOT USE!**
     fn fitness(&self) {
-        todo!();
+        todo!("This is where an equation's fitness will be calculated!");
     }
 
 }
@@ -278,8 +323,7 @@ impl Display for Equation {
     } 
 }
 
-// TODO: Once this function has been successfully implemented, make it work
-// with a CSV!
+// TODO: Once this function has been successfully implemented, make it work with a CSV!
 
 /// Performs symbolic regression in Rust using genetic programming.
 /// **NOT FUNCTIONAL; DO NOT USE!**
@@ -316,6 +360,12 @@ fn main() {
         println!("This is Equation {}: {}", eqn_idx, test_eqns[eqn_idx]);
         println!("And here is Equation {} as a bunch of enums: {}", eqn_idx, test_eqns[eqn_idx].prnt_eqn_enums());
     }
+
+    // === SWAPPING AND REPLACING EQUATIONS ===
+    let new_random_eqn = Equation::random(COEFF_EXP_RNGE, EQN_EXTENSION_CHNC);
+    println!("Here's a new equation I just came up with! {}", new_random_eqn);
+    println!("Now, I'll turn two equations into one before your very eyes! Remember this equation?\n{}", test_eqns[0]);
+    println!("Here what our \'new equation\' looks like now! Ta-daaaa!\n{}", new_random_eqn);
 
     // === CROSSOVER TEST ===
     //println!("Here's an example of a crossover between Equation 1 and Equation 2: {}", Equation::crossover(&test_eqns[0], &test_eqns[1]));
