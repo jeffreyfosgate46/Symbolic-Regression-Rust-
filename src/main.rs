@@ -1,6 +1,6 @@
 // SYMBOLIC REGRESSION GENETIC ALGORITHM IN RUST
 // By Jeffrey Fosgate
-// Last updated September 25, 2026
+// Last updated September 27, 2026
 // CURRENT STATUS: NON-FUNCTIONAL / CONCEPTUAL
 
 // Symbolic regression is a problem that lends itself well to genetic
@@ -69,11 +69,6 @@ fn fifty_fifty_chance() -> bool {
 impl Equation {
     // === # FUNCTIONS FOR INITIALIZING NEW EQUATIONS # ===
 
-    /// Produces an empty (uninitialized) Equation.
-    fn empty() -> Box<MaybeUninit<Equation>> {
-        Box::<Equation>::new_uninit()
-    }
-
     /// Produces a single-term Equation of the form (0.0)x^(0.0). Mostly used for debugging, as this is very unlikely to be produced organically.
     fn zero_term() -> Equation {
         Equation::Term(0.0, 0.0)
@@ -89,37 +84,31 @@ impl Equation {
     /// Equation. For example, if an equation "extends" once from its left-side,
     /// it may look something like `(2x / 3x^2) + 4x^3` -- an Equation inside of another
     /// Equation.
-    // TODO: This is incapable of producing a single lone term (i.e., 2x^2), preventing this algorithm from discovering a whole domain of possible solutions.
-    // Fix that!
     fn random(val_rnge: f32, extend_chnc: f32) -> Box<Equation> {
         assert!(extend_chnc > 0.0 && extend_chnc <= 100.0);
 
-        let (extend_lhs, extend_rhs) = (random_bool((extend_chnc / 100.0) as f64), random_bool((extend_chnc / 100.0) as f64));
+        if random_bool((extend_chnc / 100.0) as f64) {
 
-        let (random_lhs, random_rhs) =  (
-                                            if extend_lhs {
+            let (random_lhs, random_rhs) = 
+                                            (
+                                                Equation::random(val_rnge, extend_chnc / 2.0),
                                                 Equation::random(val_rnge, extend_chnc / 2.0)
-                                            } else {
-                                                Equation::random_term(val_rnge)
-                                            },
-                                            if extend_rhs {
-                                                Equation::random(val_rnge, extend_chnc / 2.0)
-                                            } else {
-                                                Equation::random_term(val_rnge)
-                                            }
-                                        );
+                                            );
 
-        Equation::unify_with_op( // Here's the traitor, Your Majesty!
-            &random_lhs,
-            &random_rhs,
-            match random_range(0u8..=3u8) {
-                0 => '+',
-                1 => '-',
-                2 => '*',
-                3 => '/',
-                _ => '?',
-            }
-        )
+            Equation::unify_with_op(
+                &random_lhs,
+                &random_rhs,
+                match random_range(0u8..=3u8) {
+                    0 => '+',
+                    1 => '-',
+                    2 => '*',
+                    3 => '/',
+                    _ => '?',
+                }
+            )
+        } else {
+            Equation::random_term(val_rnge)
+        }
     }
 
     /// Unifies two equations with a specific mathematical operation (`lhs + rhs`, `lhs - rhs`,
@@ -265,6 +254,7 @@ impl Equation {
                                                     } else { // The case where "eqn" ONLY is a simple term.
                                                         (other_eqn, eqn)
                                                     };
+            // Something's wrong here! This still panics sometimes.
             let Some((crossover_lhs, crossover_rhs)) = crossover.lhs_rhs() else {
                 panic!("Expected complex expression during crossover; received simple term.");
             };
@@ -304,16 +294,55 @@ impl Equation {
     /// * `term_mut_intensity: f32`: How dramatically a simple term's coefficient or exponent should be raised or lowered *at most*, if it is mutated. For instance,
     /// if `term_mut_intensity = 2.0f32`, and a term has a coefficient of `2` (as in, `2x^3`), then that coefficient can only possibly possess values between 
     /// `0.0` and `4.0` after it has been mutated.
-    fn mutate(&mut self, toplevel_mut_chance: f32, term_mut_intensity: f32) {
-        todo!("This is where mutations will occur!");
-        //assert!(init_mut_chance >= 0.0f && init_mut_chance <= 100.0f);
+    fn mutate(&mut self, toplevel_mut_chance: f32, term_mut_intensity: f32) {    
+        assert!(toplevel_mut_chance >= 0.0 && toplevel_mut_chance <= 100.0);
+        if let Some((lhs, rhs)) = self.lhs_rhs() {
+            if random_range(0.0..=100.0) > toplevel_mut_chance {
+                if fifty_fifty_chance() {
+                    *lhs = Equation::random(COEFF_EXP_RNGE, EQN_EXTENSION_CHNC);
+                } else {
+                    *rhs = Equation::random(COEFF_EXP_RNGE, EQN_EXTENSION_CHNC);
+                }
+            } else {
+                if fifty_fifty_chance() {
+                    lhs.mutate  (
+                                toplevel_mut_chance + ((100.0 - toplevel_mut_chance) / (lhs.depth(0) as f32)),
+                                term_mut_intensity
+                                );
+                } else {
+                    rhs.mutate  
+                    (
+                    toplevel_mut_chance + ((100.0 - toplevel_mut_chance) / (rhs.depth(0) as f32)),
+                    term_mut_intensity
+                    );
+                };
+            }
+        } else {
+            let Equation::Term(coeff, exp) = self else {
+                panic!("Simple term expected during mutation; complex equation provided.")
+            };
+
+            let (mut mutate_coeff, mut mutate_exp): (bool, bool);
+            loop {
+                (mutate_coeff, mutate_exp) = (fifty_fifty_chance(), fifty_fifty_chance());
+                if mutate_coeff || mutate_exp {
+                    break;
+                }
+            }
+
+            if mutate_coeff {
+                *coeff += random_range(-(term_mut_intensity)..=(term_mut_intensity));
+            } if mutate_exp {
+                *exp += random_range(-(term_mut_intensity)..=(term_mut_intensity));
+            }
+        }
     }
 
     /// Retrieves the *fitness* of this equation with respect to a set of 2D coordinates, where *fitness*
     /// denotes the closeness of an equation's overall output to the coordinates within the set.
-    /// **NOT YET IMPLEMENTED; DO NOT USE!**
     fn fitness(&self) {
         todo!("This is where an equation's fitness will be calculated!");
+
     }
 
 }
@@ -362,22 +391,63 @@ pub fn symbolic_regression_genetic( points: &[(f32, f32)], // Change this at som
     //let mut population: [Box<Equation>; 10] = [Equation::random(5.0, 50.0); 10];
 }
 
-const NUM_OF_TEST_EQS: u8 = 3;
-const COEFF_EXP_RNGE: f32 = 10.0;
-const EQN_EXTENSION_CHNC: f32 = 30.0;
+// All of these constants will be parameterized once a basic symbolic regression loop has been designed and perfected.
+const NUM_OF_TEST_EQS: u8 = 3;  // How many equations should be used for testing random eq. generation,
+                                // equation displaying, etc.?
 
+const COEFF_EXP_RNGE: f32 = 10.0;       // The test term range to use for mutate(), Equation::random(), etc.
+const EQN_EXTENSION_CHNC: f32 = 30.0;   // The test extension chance to use for crossover().
+
+const NUM_OF_TEST_POINTS: u8 = 10;  // The number of 2D points to generate for tessting fitness(), etc.
+const POINT_COORD_RANGE: f32 = 30.0;// The range (along both the x- and y-axis, positive and negative)
+                                    // within which 2D test points can be plotted.
+
+type Point = (f32, f32);
+type PointSet = Vec<Point>;
 fn main() {
 
     // ###### EQUATION FUNCTION TESTS BELOW -- UNCOMMENT WHEN NECESSARY ######
     // === TEST VALUES ===
-    let sample_points: [(f32, f32); 10] = [ (30.0, 6.0), (6.0, 15.0),
-                                            (16.0, 30.0), (2.0, 7.0),
-                                            (22.0, 3.0), (23.0, 16.0),
-                                            (27.0, 3.0), (19.0, 26.0),
-                                            (26.0, 29.0), (29.0, 25.0)];
     let mut test_eqns: Vec<Box<Equation>> = Vec::<Box<Equation>>::new();
     for _test_eqn in 0..NUM_OF_TEST_EQS {
         test_eqns.push(Equation::random(COEFF_EXP_RNGE, EQN_EXTENSION_CHNC));
+    }
+
+    let mut point_set: PointSet = PointSet::new(); // Okay... that's pretty cool.
+    let mut points_generated = 0;
+    loop {
+        let new_point: Point = (random_range(-POINT_COORD_RANGE..=POINT_COORD_RANGE).round(), random_range(-POINT_COORD_RANGE..=POINT_COORD_RANGE).round());
+        
+        if point_set.is_empty() {
+            println!("New point added! (Point list is empty)");
+            point_set.push(new_point);
+            points_generated += 1;
+        } else {
+            for point_idx in 0..=point_set.len()-1 {
+                if point_set[point_idx].1 == new_point.1 {
+                    println!("This point is not valid! (New point shares same y-coord. [{}] as point {} [{}])", new_point.1, point_idx, point_set[point_idx].1);
+                    continue;
+                }
+
+                if point_set[point_idx] == point_set[point_set.len() - 1] {
+                    point_set.push(new_point);
+                    points_generated += 1;
+                    println!("New point added! (No other points are along the same y-coord.)");
+                }
+            }
+        }
+        /*if let None = point_set.iter().find(|pt| pt.1 == new_point.1) { // This uses a closure - something you only
+            point_set.push(new_point);                                                // know about because of Rust docs. Investigate!
+            points_generated += 1;
+        }*/
+        if points_generated == NUM_OF_TEST_POINTS {
+            break;
+        }
+    }
+
+    println!("Here are our test points:");
+    for point_idx in 0..=point_set.len()-1 {
+        println!("{:?}", point_set[point_idx]);
     }
 
     // === PRINTING EQUATIONS ===
@@ -394,4 +464,11 @@ fn main() {
 
     // === CROSSOVER TEST ===
     println!("Here's an example of a crossover between Equation 1 and Equation 2: {}", Equation::crossover(&test_eqns[0], &test_eqns[1]));
+
+    // === MUTATION TEST ===
+    let last_idx: usize = test_eqns.len() - 1;
+    println!("Now, here's Equation {} again:\n{}", last_idx, test_eqns[last_idx]);
+    test_eqns[last_idx].mutate(20.0, 30.0);
+    println!("And here's Equation {} after I tweaked with it a little!\n{}", last_idx, test_eqns[last_idx]);
+    
 }
