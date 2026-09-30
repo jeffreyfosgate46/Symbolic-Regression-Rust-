@@ -1,6 +1,6 @@
 // SYMBOLIC REGRESSION GENETIC ALGORITHM IN RUST
 // By Jeffrey Fosgate
-// Last updated September 27, 2026
+// Last updated September 29, 2026
 // CURRENT STATUS: NON-FUNCTIONAL / CONCEPTUAL
 
 // Symbolic regression is a problem that lends itself well to genetic
@@ -25,7 +25,6 @@ enum Trig_Func {
 */
 
 use rand::{random_bool, random_range};
-use std::f32::consts::E;
 use std::mem::MaybeUninit; // TODO: What EXACTLY is "MaybeUninit"? Sources say it's analogous to the Option enum, but how?
 use std::fmt::{Display, Error, Formatter}; // Okay -- technically, this makes displaying Equations
                                            // directly work... but surely there's a smarter way of
@@ -260,39 +259,22 @@ impl Equation {
                                         if use_other_coeff { eqn_exp } else { other_eqn_exp }))
         } else { 
             let (mut crossover, mut other) = 
-                                                    if !(is_eqn_a_term || is_other_eqn_a_term) { // The case where BOTH equations are complex expressions.
-                                                        if fifty_fifty_chance() { (eqn, other_eqn) } else { (other_eqn, eqn) }
-                                                    }
-                                                    else if is_other_eqn_a_term { // The case where "other_eqn" ONLY is a simple term.
-                                                        (eqn, other_eqn)
-                                                    } else { // The case where "eqn" ONLY is a simple term.
-                                                        (other_eqn, eqn)
-                                                    };
-            let (mut other_lhs, mut other_rhs): (&Box<Equation>, &Box<Equation>) = (&other, &other);
+                                            if !(is_eqn_a_term || is_other_eqn_a_term) { // The case where BOTH equations are complex expressions.
+                                                if fifty_fifty_chance() { (eqn, other_eqn) } else { (other_eqn, eqn) }
+                                            }
+                                            else if is_other_eqn_a_term { // The case where "other_eqn" ONLY is a simple term.
+                                                (eqn, other_eqn)
+                                            } else { // The case where "eqn" ONLY is a simple term.
+                                                (other_eqn, eqn)
+                                            };
 
             let Some((crossover_lhs, crossover_rhs)) = crossover.lhs_rhs() else {
                 panic!("Expected complex expression during crossover; received simple term.");
             };
 
-            if let Some((other_lhs, other_rhs)) = other.lhs_rhs() {
-                ;
-            } else {
-                (other_lhs, other_rhs) = (&other, &other);
-            }
-            // OLD SOLUTION BELOW. This made crossover() work between two Equations, but not between an Equation and a Term. A fix to this problem must
-            // be implemented!
-
-            /*
-            let Some((other_lhs, other_rhs)) = other.lhs_rhs() else {
-                panic!("Expected complex expression during crossover; received simple term.");
-            };
-            */
-
-            if let Some((other_lhs, other_rhs)) = other.lhs_rhs() {
-                ;
-            } else {
-                other_lhs = &mut other;
-                other_rhs = other_lhs;
+            let (other_lhs, other_rhs) = match other.lhs_rhs() {
+                Some((found_lhs, found_rhs)) => (&*found_lhs, &*found_rhs),
+                None => (&other, &other),
             };
 
             Equation::replace(
@@ -430,8 +412,9 @@ impl Display for Equation {
 // TODO: Once this function has been successfully implemented, make it work with a CSV!
 
 /// Performs symbolic regression in Rust using genetic programming.
-/// **NOT FUNCTIONAL; DO NOT USE!**
-pub fn symbolic_regression_genetic( points: &[(f32, f32)], // Change this at some point!!
+/// 
+/// 
+pub fn symbolic_regression_genetic( points: PointSet,
                                     pop_size: u8, 
                                     mutation_chance: f32, 
                                     generations: u8) -> Box<Equation> {
